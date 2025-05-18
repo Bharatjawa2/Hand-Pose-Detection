@@ -1,10 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Box, Button, Container, Heading, VStack, useColorMode, Text } from '@chakra-ui/react';
+import { Box, Button, Container, Flex, Heading, VStack, useColorMode, Text, Image } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
 import Webcam from "react-webcam";
 import * as tf from "@tensorflow/tfjs";
 import * as handpose from "@tensorflow-models/handpose";
 import { drawHand } from '../utils/utilities';
+import * as fgp from "fingerpose";
+import victory from "../images/victory.png";
+import thumbs_up from "../images/thumbs_up.png";
 
 const HandPoseDetection = () => {
   const webcamRef = useRef(null);
@@ -12,44 +15,91 @@ const HandPoseDetection = () => {
   const navigate = useNavigate();
   const { colorMode } = useColorMode();
 
+  const [emoji, setEmoji] = useState(null);
+  const [gestureName, setGestureName] = useState("");
+  const images = { 
+    thumbs_up: thumbs_up, 
+    victory: victory 
+  };
+
   useEffect(() => {
     runHandPose();
+    
+    return () => {
+      if (webcamRef.current?.video?.srcObject) {
+        const stream = webcamRef.current.video.srcObject;
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
   }, []);
 
   const runHandPose = async () => {
-    const net = await handpose.load();
-    console.log("HandPose model loaded successfully.");
-    setInterval(() => {
-      detect(net);
-    }, 100);
+    try {
+      await tf.ready();
+      const net = await handpose.load();
+      
+      const detectInterval = setInterval(() => {
+        detect(net);
+      }, 100);
+
+      return () => clearInterval(detectInterval);
+    } catch (error) {
+      console.error("Error loading handpose model:", error);
+    }
   };
 
   const detect = async (net) => {
-    if (
-      typeof webcamRef.current !== 'undefined' &&
-      webcamRef.current !== null &&
-      webcamRef.current.video.readyState === 4
-    ) {
-      const video = webcamRef.current.video;
-      const videoWidth = webcamRef.current.video.videoWidth;
-      const videoHeight = webcamRef.current.video.videoHeight;
+    try {
+      if (webcamRef.current?.video?.readyState === 4) {
+        const video = webcamRef.current.video;
+        const videoWidth = video.videoWidth;
+        const videoHeight = video.videoHeight;
 
-      webcamRef.current.video.width = videoWidth;
-      webcamRef.current.video.height = videoHeight;
+        canvasRef.current.width = videoWidth;
+        canvasRef.current.height = videoHeight;
 
-      canvasRef.current.width = videoWidth;
-      canvasRef.current.height = videoHeight;
+        const hand = await net.estimateHands(video);
+        const ctx = canvasRef.current.getContext("2d");
+        ctx.clearRect(0, 0, videoWidth, videoHeight);
 
-      const hand = await net.estimateHands(video);
-      const ctx = canvasRef.current.getContext("2d");
-      drawHand(hand, ctx);
+        if (hand.length > 0) {
+          ctx.save();
+          ctx.scale(-1, 1);
+          ctx.translate(-videoWidth, 0);
+          drawHand(hand, ctx);
+          ctx.restore();
+
+          const GE = new fgp.GestureEstimator([
+            fgp.Gestures.VictoryGesture,
+            fgp.Gestures.ThumbsUpGesture,
+          ]);
+
+          const gesture = GE.estimate(hand[0].landmarks, 8);
+          
+          if (gesture.gestures?.length > 0) {
+            const bestGesture = gesture.gestures.reduce((prev, current) => 
+              (prev.score > current.score) ? prev : current
+            );
+            
+            if (bestGesture.score > 7) {
+              setEmoji(images[bestGesture.name]);
+              setGestureName(bestGesture.name);
+            }
+          }
+        } else {
+          setEmoji(null);
+          setGestureName("");
+        }
+      }
+    } catch (error) {
+      console.error("Error during detection:", error);
     }
   };
 
   return (
     <Box minH="100vh" bg={colorMode === 'dark' ? 'gray.900' : 'white'}>
       <Container maxW="container.xl" py={8} centerContent>
-        <VStack spacing={8} maxW="1200px" mx="auto">
+        <VStack spacing={8} width="100%">
           <Heading
             as="h1"
             size="xl"
@@ -62,87 +112,97 @@ const HandPoseDetection = () => {
           <Text fontSize="lg" color={colorMode === 'dark' ? 'gray.300' : 'gray.600'} textAlign="center">
             Position your hand in front of the camera to see real-time detection
           </Text>
-          
-          <Box
-            position="relative"
-            width="640px"
-            height="480px"
-            borderRadius="2xl"
-            overflow="hidden"
-            boxShadow="2xl"
-            border="4px solid"
-            borderColor={colorMode === 'dark' ? 'gray.700' : 'gray.200'}
-            _before={{
-              content: '""',
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              borderRadius: '2xl',
-              boxShadow: 'inset 0 0 20px rgba(0, 0, 0, 0.2)',
-              pointerEvents: 'none',
-            }}
+
+          <Flex 
+            direction={['column', 'row']} 
+            align="center" 
+            justify="center" 
+            gap={8}
+            width="100%"
           >
-            <Webcam
-              ref={webcamRef}
-              style={{
-                position: "absolute",
-                marginLeft: "auto",
-                marginRight: "auto",
-                left: 0,
-                right: 0,
-                textAlign: "center",
-                zIndex: 9,
-                width: 640,
-                height: 480,
-                borderRadius: '1rem',
-              }}
-            />
-            <canvas
-              ref={canvasRef}
-              style={{
-                position: "absolute",
-                marginLeft: "auto",
-                marginRight: "auto",
-                left: 0,
-                right: 0,
-                textAlign: "center",
-                zIndex: 9,
-                width: 640,
-                height: 480,
-                borderRadius: '1rem',
-              }}
-            />
-          </Box>
+            {/* Webcam Container - Fixed width */}
+            <Box
+              position="relative"
+              width="640px"
+              height="480px"
+              borderRadius="2xl"
+              overflow="hidden"
+              boxShadow="2xl"
+              border="4px solid"
+              borderColor={colorMode === 'dark' ? 'gray.700' : 'gray.200'}
+              flexShrink={0}  // Prevent shrinking
+            >
+              <Webcam
+                ref={webcamRef}
+                style={{
+                  position: "absolute",
+                  width: "100%",
+                  height: "100%",
+                  zIndex: 9,
+                }}
+                mirrored={true}
+              />
+              <canvas
+                ref={canvasRef}
+                style={{
+                  position: "absolute",
+                  width: "100%",
+                  height: "100%",
+                  zIndex: 10,
+                }}
+              />
+            </Box>
+
+            {/* Emoji Container - Always present but hidden when no gesture */}
+            <Box
+              p={6}
+              borderRadius="2xl"
+              bg={colorMode === 'dark' ? 'gray.700' : 'gray.50'}
+              boxShadow="xl"
+              width={['100%', '300px']}
+              minHeight="200px"
+              display="flex"
+              flexDirection="column"
+              alignItems="center"
+              justifyContent="center"
+              visibility={emoji ? "visible" : "hidden"}
+              opacity={emoji ? 1 : 0}
+              transition="opacity 0.2s ease"
+            >
+              {emoji ? (
+                <>
+                  <Text 
+                    fontSize="2xl" 
+                    fontWeight="bold" 
+                    mb={4}
+                    color={colorMode === 'dark' ? 'white' : 'gray.800'}
+                  >
+                    Detected: {gestureName.replace('_', ' ')}
+                  </Text>
+                  <Image 
+                    src={emoji} 
+                    alt={gestureName}
+                    boxSize="150px"
+                    objectFit="contain"
+                  />
+                </>
+              ) : (
+                <Text color={colorMode === 'dark' ? 'gray.400' : 'gray.500'}>
+                  No gesture detected
+                </Text>
+              )}
+            </Box>
+          </Flex>
 
           <Button
-            bg="gray.800"
-            color="white"
+            colorScheme={colorMode === 'dark' ? 'gray' : 'blackAlpha'}
             onClick={() => navigate('/')}
             size="lg"
             px={8}
             _hover={{
               transform: 'translateY(-2px)',
-              boxShadow: '2xl',
-              bg: 'gray.700',
-              _before: {
-                content: '""',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                borderRadius: 'md',
-                boxShadow: '0 0 20px rgba(0, 0, 0, 0.3)',
-              }
+              boxShadow: 'xl',
             }}
-            _active={{
-              transform: 'translateY(0)',
-              boxShadow: 'lg',
-            }}
-            transition="all 0.3s"
-            position="relative"
           >
             Back to Home
           </Button>
@@ -152,4 +212,4 @@ const HandPoseDetection = () => {
   );
 };
 
-export default HandPoseDetection; 
+export default HandPoseDetection;

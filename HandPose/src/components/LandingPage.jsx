@@ -35,7 +35,7 @@ const LandingPage = () => {
 
           <Text fontSize="xl" maxW="container.md" color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
             Experience the power of real-time hand pose detection using TensorFlow.js.
-            Our application uses advanced machine learning to track and analyze hand movements
+            Our application track and analyze hand movements
             in real-time through your webcam.
           </Text>
 
@@ -65,7 +65,7 @@ const LandingPage = () => {
                 Real-time Detection
               </Heading>
               <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
-                Track hand movements with millisecond precision using advanced ML algorithms.
+                Track hand movements with millisecond precision.
               </Text>
             </Box>
 
